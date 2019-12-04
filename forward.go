@@ -8,8 +8,8 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-  "sync"
-  "time"
+	"sync"
+	"time"
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/debug"
@@ -61,9 +61,9 @@ func (f *Forward) Len() int { return len(f.proxies) }
 func (f *Forward) Name() string { return "forward" }
 
 type fwdResp struct {
-  ret         *dns.Msg
-  code        int
-  upstreamErr error
+	ret         *dns.Msg
+	code        int
+	upstreamErr error
 }
 
 // ServeDNS implements plugin.Handler.
@@ -80,92 +80,92 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 
 	live := make([]*Proxy, 0, len(list))
 	for _, proxy := range list {
-	  if proxy.Down(f.maxfails) {
-	    continue
-    }
-    live = append(live, proxy)
-  }
+		if proxy.Down(f.maxfails) {
+			continue
+		}
+		live = append(live, proxy)
+	}
 
-  wg := &sync.WaitGroup{}
-  ch := make(chan fwdResp, len(live))
+	wg := &sync.WaitGroup{}
+	ch := make(chan fwdResp, len(live))
 
 	for _, proxy := range live {
-	  wg.Add(1)
-	  go func(proxy *Proxy) {
-	    defer wg.Done()
-	    var child ot.Span
-	    var ctxInner context.Context
-	    var fails uint32 = 0
+		wg.Add(1)
+		go func(proxy *Proxy) {
+			defer wg.Done()
+			var child ot.Span
+			var ctxInner context.Context
+			var fails uint32 = 0
 
-	    for fails < f.maxfails {
-        if span != nil {
-          child = span.Tracer().StartSpan("connect", ot.ChildOf(span.Context()))
-          ctxInner = ot.ContextWithSpan(ctx, child)
-        }
+			for fails < f.maxfails {
+				if span != nil {
+					child = span.Tracer().StartSpan("connect", ot.ChildOf(span.Context()))
+					ctxInner = ot.ContextWithSpan(ctx, child)
+				}
 
-        var (
-          ret *dns.Msg
-          err error
-        )
+				var (
+					ret *dns.Msg
+					err error
+				)
 
-        opts := f.opts
-        for {
-          ret, err = proxy.Connect(ctxInner, state, opts)
-          if err == ErrCachedClosed { // Remote side closed conn, can only happen with TCP.
-            continue
-          }
-          // Retry with TCP if truncated and prefer_udp configured.
-          if ret != nil && ret.Truncated && !opts.forceTCP && opts.preferUDP {
-            opts.forceTCP = true
-            continue
-          }
-          break
-        }
+				opts := f.opts
+				for {
+					ret, err = proxy.Connect(ctxInner, state, opts)
+					if err == ErrCachedClosed { // Remote side closed conn, can only happen with TCP.
+						continue
+					}
+					// Retry with TCP if truncated and prefer_udp configured.
+					if ret != nil && ret.Truncated && !opts.forceTCP && opts.preferUDP {
+						opts.forceTCP = true
+						continue
+					}
+					break
+				}
 
-        if child != nil {
-          child.Finish()
-        }
+				if child != nil {
+					child.Finish()
+				}
 
-        if err != nil {
-          // Kick off health check to see if *our* upstream is broken.
-          if f.maxfails != 0 {
-            proxy.Healthcheck()
-          }
+				if err != nil {
+					// Kick off health check to see if *our* upstream is broken.
+					if f.maxfails != 0 {
+						proxy.Healthcheck()
+					}
 
-          fails++
-          if !proxy.Down(f.maxfails) {
-            continue
-          }
+					fails++
+					if !proxy.Down(f.maxfails) {
+						continue
+					}
 
-          ch <- fwdResp{
-            ret:         nil,
-            code:        0,
-            upstreamErr: err,
-          }
-          break
-        }
+					ch <- fwdResp{
+						ret:         nil,
+						code:        0,
+						upstreamErr: err,
+					}
+					break
+				}
 
-        if !state.Match(ret) {
-          debug.Hexdumpf(ret, "Wrong reply for id: %d, %s %d", ret.Id, state.QName(), state.QType())
+				if !state.Match(ret) {
+					debug.Hexdumpf(ret, "Wrong reply for id: %d, %s %d", ret.Id, state.QName(), state.QType())
 
-          formerr := new(dns.Msg)
-          formerr.SetRcode(state.Req, dns.RcodeFormatError)
-          ch <- fwdResp{
-            ret:         formerr,
-            code:        0,
-            upstreamErr: nil,
-          }
-          break
-        } else {
-          ch <- fwdResp{
-            ret:         ret,
-            code:        0,
-            upstreamErr: nil,
-          }
-          break
-        }
-      }
-    }(proxy)
+					formerr := new(dns.Msg)
+					formerr.SetRcode(state.Req, dns.RcodeFormatError)
+					ch <- fwdResp{
+						ret:         formerr,
+						code:        0,
+						upstreamErr: nil,
+					}
+					break
+				} else {
+					ch <- fwdResp{
+						ret:         ret,
+						code:        0,
+						upstreamErr: nil,
+					}
+					break
+				}
+			}
+		}(proxy)
 	}
 
 	wg.Wait()
@@ -173,39 +173,39 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 
 	resps := make([]fwdResp, 0, len(live))
 	for resp := range ch {
-	  resps = append(resps, resp)
-  }
+		resps = append(resps, resp)
+	}
 
-  ipAnswers := make([]dns.RR, 0, len(live))
-  for _, resp := range resps {
-    if resp.ret == nil {
-      continue
-    }
-    for _, rr := range resp.ret.Answer {
-      switch rr.Header().Rrtype {
-      case dns.TypeA:
-        ipAnswers = append(ipAnswers, rr)
-      case dns.TypeAAAA:
-        ipAnswers = append(ipAnswers, rr)
-      }
-    }
-  }
+	ipAnswers := make([]dns.RR, 0, len(live))
+	for _, resp := range resps {
+		if resp.ret == nil {
+			continue
+		}
+		for _, rr := range resp.ret.Answer {
+			switch rr.Header().Rrtype {
+			case dns.TypeA:
+				ipAnswers = append(ipAnswers, rr)
+			case dns.TypeAAAA:
+				ipAnswers = append(ipAnswers, rr)
+			}
+		}
+	}
 
-  if len(ipAnswers) > 0 {
-    ret := new(dns.Msg)
-    ret.SetReply(r)
-    ret.Answer = ipAnswers
-    w.WriteMsg(ret)
-    return 0, nil
-  }
+	if len(ipAnswers) > 0 {
+		ret := new(dns.Msg)
+		ret.SetReply(r)
+		ret.Answer = ipAnswers
+		w.WriteMsg(ret)
+		return 0, nil
+	}
 
-  for _, resp := range resps {
-    if resp.upstreamErr == nil {
-      continue
-    }
+	for _, resp := range resps {
+		if resp.upstreamErr == nil {
+			continue
+		}
 
-    return dns.RcodeServerFailure, resp.upstreamErr
-  }
+		return dns.RcodeServerFailure, resp.upstreamErr
+	}
 
 	return dns.RcodeServerFailure, ErrNoHealthy
 }
