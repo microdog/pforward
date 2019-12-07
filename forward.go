@@ -176,6 +176,7 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 		resps = append(resps, resp)
 	}
 
+	var successRet *dns.Msg
 	ipAnswers := make([]dns.RR, 0, len(live))
 	for _, resp := range resps {
 		if resp.ret == nil {
@@ -185,17 +186,17 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 			switch rr.Header().Rrtype {
 			case dns.TypeA:
 				ipAnswers = append(ipAnswers, rr)
+				successRet = resp.ret
 			case dns.TypeAAAA:
 				ipAnswers = append(ipAnswers, rr)
+				successRet = resp.ret
 			}
 		}
 	}
 
 	if len(ipAnswers) > 0 {
-		ret := new(dns.Msg)
-		ret.SetReply(r)
-		ret.Answer = ipAnswers
-		w.WriteMsg(ret)
+		successRet.Answer = ipAnswers
+		w.WriteMsg(successRet)
 		return 0, nil
 	}
 
