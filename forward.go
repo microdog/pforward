@@ -176,7 +176,6 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 		resps = append(resps, resp)
 	}
 
-	var successRet *dns.Msg
 	ipAnswers := make([]dns.RR, 0, len(live))
 	for _, resp := range resps {
 		if resp.ret == nil {
@@ -186,18 +185,39 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 			switch rr.Header().Rrtype {
 			case dns.TypeA:
 				ipAnswers = append(ipAnswers, rr)
-				successRet = resp.ret
 			case dns.TypeAAAA:
 				ipAnswers = append(ipAnswers, rr)
-				successRet = resp.ret
 			}
 		}
 	}
 
 	if len(ipAnswers) > 0 {
-		successRet.Answer = ipAnswers
-		w.WriteMsg(successRet)
+		var ret = &dns.Msg{}
+		ret.SetReply(r)
+		ret.Authoritative = false
+		ret.RecursionAvailable = true
+		name := ret.Question[0].Name
+		for _, ip := range ipAnswers {
+			ip.Header().Name = name
+			ret.Answer = append(ret.Answer, ip)
+		}
+		w.WriteMsg(ret)
 		return 0, nil
+	}
+
+	// find a successful response
+	for _, resp := range resps {
+		if resp.ret != nil && resp.ret.Rcode == dns.RcodeSuccess {
+			w.WriteMsg(resp.ret)
+			return 0, nil
+		}
+	}
+
+	for _, resp := range resps {
+		if resp.ret != nil {
+			w.WriteMsg(resp.ret)
+			return 0, nil
+		}
 	}
 
 	for _, resp := range resps {
